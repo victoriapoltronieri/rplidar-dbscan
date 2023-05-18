@@ -9,6 +9,9 @@
 #define LIDAR_DRIVER_H
 
 #include "main.h"
+#include <vector>
+#include <iostream>
+#include <algorithm>
 
 #define POINTS 1800	//Maximum amount of points to be possibly stored.
 
@@ -87,8 +90,8 @@ typedef struct lidar_map{
 	float dmax = 0;
 	float amin = 0;
 	float dmin = 1000.0;
-	float angles[POINTS] = {0.0};
-	float distances[POINTS] = {0.0};
+	std::vector<float> angles;
+	std::vector<float> distances;
 } lidar_map;
 
 

@@ -23,10 +23,20 @@
 /* USER CODE BEGIN Includes */
 #include "lidar_driver.h"
 #include "lidar.h"
-#include "dbscan.h"
-#include <stdio.h>
-#include <string.h>
+#include "dbscan.hpp"
+#include <iostream>
+#include <string>
+#include <system_error>
+#include <string_view>
 #include <vector>
+#include <utility>
+#include <fstream>
+#include <charconv>
+#include <cassert>
+#include <tuple>
+#include <cstring>
+#include <array>
+#include <span>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -69,9 +79,13 @@ int count = 0;
 //Quantidade de pacotes recebidos -> utilizado no dbscan
 int n_blocks = 0;
 
+using std::vector;
+
 //Variáveis dbscan
-float eps = 0.05; // vizinhaça
-int minPts = 4; // minimo de pontos para formar uma região densa
+float eps = 0.75; // vizinhaça
+int minPts = 8; // minimo de pontos para formar uma região densa
+vector<point2> points; // pontos x->distancia; y->angulo
+//DBSCAN db = new DBSCAN();
 
 /* USER CODE END PV */
 
@@ -83,6 +97,112 @@ static void MX_TIM12_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
+auto check_from_chars_error(std::errc err, const std::string_view& line, int line_counter)
+{
+    if(err == std::errc())
+        return;
+
+    if(err == std::errc::invalid_argument)
+    {
+        std::cerr << "Error: Invalid value \"" << line
+            << "\" at line " << line_counter << "\n";
+        std::exit(1);
+    }
+
+    if(err == std::errc::result_out_of_range)
+    {
+        std::cerr << "Error: Value \"" << line << "\"out of range at line "
+                  <<  line_counter << "\n";
+        std::exit(1);
+    }
+
+}
+
+template<typename T>
+auto to_num(const std::string& str)
+{
+    T value = 0;
+    auto [ptr, ec] = std::from_chars(str.data(), str.data() + str.size(), value);
+
+    if(ec != std::errc())
+    {
+        std::cerr << "Error converting value '" << str << "'\n";
+        std::exit(1);
+    }
+    return value;
+}
+
+
+// noise will be labelled as 0
+auto flatten(const std::vector<std::vector<size_t>>& clusters, size_t n)
+{
+    auto flat_clusters = std::vector<size_t>(n);
+
+    for(size_t i = 0; i < clusters.size(); i++)
+    {
+        for(auto p: clusters[i])
+        {
+            flat_clusters[p] = i + 1;
+        }
+    }
+
+    return flat_clusters;
+}
+
+
+auto run_dbscan(int dim, const std::span<const point2>& data, float eps, int min_pts)
+{
+    if(dim == 2)
+    {
+        auto points = std::vector<point2>(data.size() / dim);
+        std::memcpy(points.data(), data.data(), sizeof(float) * data.size());
+
+        return dbscan(data, eps, min_pts);
+    }
+
+
+   // auto points = std::vector<point3>(data.size() / dim);
+    //std::memcpy(points.data(), data.data(), sizeof(float) * data.size());
+
+    //return dbscan(data, eps, min_pts);
+}
+
+
+auto dbscan2d(vector<point2> data, float eps, int min_pts)
+{
+//    auto points = std::vector<point2>(data.size() / 2);
+//
+//    std::memcpy(points.data(), data.data(), sizeof(float) * data.size());
+
+    auto clusters = dbscan(data, eps, min_pts);
+    auto flat     = flatten(clusters, data.size());
+
+    for(size_t i = 0; i < data.size(); i++)
+    {
+        //std::cout << points[i].x_dist << ' -- ' << points[i].y_angl << ' -- '  << flat[i] << ' !!!!!\r\n\n ';
+    	//printf("pra saber o que tá acontecendo\r\n");
+    	//printf("%f --- %f --- %d\r\n", data[i].x_dist, data[i].y_angl, flat[i]);
+    	printf("%f---%f\r\n", data[i].x_dist, data[i].y_angl);
+    }
+}
+
+
+//auto dbscan3d(const std::span<const float>& data, float eps, int min_pts)
+//{
+//    auto points = std::vector<point3>(data.size() / 3);
+//
+//    std::memcpy(points.data(), data.data(), sizeof(float) * data.size());
+//
+//    auto clusters = dbscan(points, eps, min_pts);
+//    auto flat     = flatten(clusters, points.size());
+//
+//    for(size_t i = 0; i < points.size(); i++)
+//    {
+//        std::cout << points[i].x << ',' << points[i].y << ',' << points[i].z << ',' << flat[i] << '\n';
+//    }
+//}
+
+
 
 extern "C"{
 int _write(int fd, char* ptr, int len) {
@@ -99,7 +219,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		static uint8_t previous_k = 2;
 		static uint8_t next_k = 1;
 
-		printf("enviou\r\n");
+//		printf("enviou\r\n");
 
 		if(parseData)
 		{
@@ -226,8 +346,16 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 						  if(f_angle < 0) f_angle += 360.0;
 
 						  //Add received data to the arrays
-						  map_li.angles[map_li.cnt] = f_angle;
-						  map_li.distances[map_li.cnt] = f_distance;
+						  map_li.angles.push_back(f_angle);
+						  map_li.distances.push_back(f_distance);
+
+
+						  //printf("%f --- %f ", f_angle, f_distance);
+//						  map_li.angles[map_li.cnt] = f_angle;
+//						  map_li.distances[map_li.cnt] = f_distance;
+//						  points->x_dist.push_back(f_distance);
+//						  points->y_ang.push_back(f_angle);
+
 
 						  //If this is the greatest distance, save it
 						  if(f_distance > map_li.dmax){
@@ -238,26 +366,18 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 							  map_li.dmin = f_distance;
 							  map_li.amin = f_angle;
 						  }
+						  point2 p;
+						  if(f_angle >= 155 && f_angle <= 215){
+							  p.x_dist = f_distance;
+							  p.y_angl = f_angle;
+							  points.push_back(p);
+						  }
 						  map_li.cnt++;
 						}
 					}
 					if(map_li.recv_status == RECV_STATUS_SYNCED_TWICE_MAP_READY) break;
 				}
 			}
-//			DBSCAN();
-
-//			while(i < next_k * BLOCK_SIZE){
-//			while(i < 132){
-//				if(count == 0){
-//					printf("começou novo pacote!!!!\r\n");
-//					count = 1;
-//				}
-//				printf("%d -- ", buff[i+ next_k * BLOCK_SIZE]);
-//				i++;
-//			}
-
-			//printf("distance: %d\r\n", distance);
-			//printf("angle: %d\r\n", angle);
 			k++;
 			previous_k++;
 			next_k++;
@@ -349,8 +469,24 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  printf("detro do while\r\n");
+	  //printf("detro do while\r\n");
 	  while(map_li.recv_status != RECV_STATUS_SYNCED_TWICE_MAP_READY);
+
+	  dbscan2d(points, eps, minPts);
+	  run_dbscan(2, points, eps, minPts);
+
+//		db = DBSCAN(map_li.cnt, eps, minPts, points);
+//		db.run();
+
+//		while(i < 3 * BLOCK_SIZE){
+//			printf("%x\r\n", buff[i]);
+//			i++;
+//		}
+//		i = 0;
+		//printf("saiu do while\r\n\n\n");
+
+	  			//printf("distance: %d\r\n", distance);
+	  			//printf("angle: %d\r\n", angle);
 	  //Clear received data.
 	  map_li = lidar_map();
     /* USER CODE END WHILE */
@@ -506,7 +642,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
+  huart2.Init.BaudRate = 256000;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
